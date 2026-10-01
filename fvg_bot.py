@@ -297,11 +297,23 @@ def create_exchange():
     return exchange
 
 
+def get_all_spot_symbols(exchange, quote="USDT"):
+    """Return every active Binance spot symbol quoted in the requested currency."""
+    symbols = []
+    for market in exchange.markets.values():
+        if (market.get("spot") and market.get("active", True)
+                and market.get("quote") == quote and "/" in market["symbol"]):
+            symbols.append(market["symbol"])
+    return sorted(set(symbols))
+
+
 def run(args):
     exchange = create_exchange()
     os.makedirs("reports", exist_ok=True)
     all_trades, per_symbol = [], {}
-    for symbol in args.symbols:
+    symbols = get_all_spot_symbols(exchange, args.quote) if args.all_coins else args.symbols
+    print(f"Selected {len(symbols)} active Binance spot {args.quote} markets.")
+    for symbol in symbols:
         print(f"\n[{symbol}] fetching closed 15m candles for {args.days} days...")
         try:
             df = fetch_ohlcv(exchange, symbol, args.days)
@@ -354,6 +366,8 @@ def run(args):
         pd.DataFrame([asdict(t) for t in all_trades]).to_csv("reports/trades.csv", index=False)
         report = {
             "config": {"timeframe": TIMEFRAME, "days": args.days, "fee_bps_per_side": args.fee_bps,
+                       "market_scope": "all active Binance spot markets" if args.all_coins else "selected symbols",
+                       "quote": args.quote,
                        "slippage_bps_per_side": args.slippage_bps,
                        "initial_equity_per_symbol": args.initial_equity,
                        "risk_fraction": args.risk_fraction, "reward_risk": args.reward_risk,
@@ -375,7 +389,12 @@ def main():
     for command in ("scan", "backtest"):
         sp = subs.add_parser(command)
         sp.add_argument("--symbols", nargs="+",
-                        default=["BTC/USDT", "ETH/USDT", "SOL/USDT", "BONK/USDT"])
+                        default=["BTC/USDT", "ETH/USDT", "SOL/USDT", "BONK/USDT"],
+                        help="Used only without --all-coins.")
+        sp.add_argument("--all-coins", action="store_true",
+                        help="Automatically use every active Binance spot market quoted in --quote.")
+        sp.add_argument("--quote", default="USDT",
+                        help="Quote asset used by --all-coins (default: USDT).")
         sp.add_argument("--days", type=int, default=180)
         sp.add_argument("--min-gap-atr", type=float, default=0.12)
         sp.add_argument("--min-impulse-ratio", type=float, default=0.55)
