@@ -19,13 +19,13 @@ pip install -r requirements.txt
 
 ## Backtest
 ```bash
-python fvg_bot.py backtest --symbols BTC/USDT ETH/USDT SOL/USDT --days 180
+python fvg_bot.py backtest --all-coins --days 180
 ```
-Defaults: 15m candles, 10 bps taker fee per side, 5 bps slippage per side, $1,000 starting equity per symbol, 0.5% risk per trade, 2R target. Reports are written to `reports/`. Each symbol is an independent test account; do not interpret summed P&L as one portfolio return.
+Defaults: 15m candles, 10 bps taker fee per side, 5 bps slippage per side, $1,000 starting equity per symbol, 0.5% risk per trade, 2R target. With --all-coins, the bot discovers every active Binance Spot market quoted in USDT at runtime, so there is no hard-coded coin limit. Reports are written to `reports/`. Each symbol is an independent test account; do not interpret summed P&L as one portfolio return.
 
 ## Scan
 ```bash
-python fvg_bot.py scan --symbols BTC/USDT ETH/USDT SOL/USDT BONK/USDT
+python fvg_bot.py scan --all-coins
 ```
 
 ## Filters
