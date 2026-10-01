@@ -105,7 +105,7 @@ def _fvg_candidates(d: pd.DataFrame, i: int, min_gap_atr: float,
 
         found.append(
             {
-                "symbol": symbol_placeholder if False else "",
+                "symbol": "",
                 "direction": direction,
                 "created_at": pd.Timestamp(
                     int(c["timestamp"]), unit="ms", tz="UTC"
