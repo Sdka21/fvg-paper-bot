@@ -1,0 +1,51 @@
+{
+  "strategy": "ICT-inspired long-only spot paper trader",
+  "started_at": "2026-10-01T20:55:06.185135+00:00",
+  "last_run_at": "2026-10-01T20:55:06.185135+00:00",
+  "equity": 999.952,
+  "cash": 903.8645,
+  "open_positions": [
+    {
+      "symbol": "AUDIO/USDT",
+      "entry_time": "2026-10-01T20:30:00+00:00",
+      "entry_price": 0.01677,
+      "qty": 5729.720880739957,
+      "stop_price": 0.015897357142857144,
+      "target_price": 0.018515285714285713,
+      "zone_lower": 0.01641,
+      "zone_upper": 0.01689,
+      "sweep_level": 0.01594
+    }
+  ],
+  "trades": [],
+  "processed": {
+    "AUDIO/USDT": 1759350600000
+  },
+  "zones": {},
+  "equity_curve": [
+    {
+      "timestamp": "2026-10-01T20:55:06.185135+00:00",
+      "equity": 999.952,
+      "cash": 903.8645,
+      "open_positions": 1
+    }
+  ],
+  "max_open_positions": 1,
+  "last_signals": [
+    {
+      "symbol": "AUDIO/USDT",
+      "type": "LONG_OPENED",
+      "time": "2026-10-01T20:30:00+00:00",
+      "entry": 0.01677,
+      "stop": 0.015897357142857144,
+      "target": 0.018515285714285713,
+      "quantity": 5729.720880739957,
+      "risk_cash": 5,
+      "fvg": [
+        0.01641,
+        0.01689
+      ],
+      "sweep_level": 0.01594
+    }
+  ]
+}
