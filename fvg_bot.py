@@ -422,9 +422,17 @@ def backtest_symbol(df: pd.DataFrame, symbol: str, fee_bps: float, slippage_bps:
 
 
 def create_exchange():
+    # Use Binance's official public market-data host by default. This host is
+    # specifically documented for public Spot endpoints such as exchangeInfo
+    # and klines and avoids regional restrictions that can affect api.binance.com.
+    public_base = os.getenv(
+        "BINANCE_PUBLIC_API_BASE",
+        "https://data-api.binance.vision/api/v3",
+    ).rstrip("/")
     exchange = ccxt.binance(
         {"enableRateLimit": True, "options": {"defaultType": "spot"}}
     )
+    exchange.urls["api"]["public"] = public_base
     exchange.load_markets()
     return exchange
 
