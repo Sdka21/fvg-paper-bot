@@ -1,6 +1,13 @@
 name: ICT long-only spot paper trader
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - "paper_trader.py"
+      - ".github/workflows/ict_paper_trader.yml"
+      - "fvg_bot.py"
+      - "requirements.txt"
   schedule:
     - cron: "3,18,33,48 * * * *"
   workflow_dispatch:
