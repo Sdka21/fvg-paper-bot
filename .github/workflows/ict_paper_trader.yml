@@ -10,7 +10,7 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   paper:
@@ -28,10 +28,10 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Run ICT paper cycle
+      - name: Run persistent ICT paper cycle
         run: |
           mkdir -p reports
-          python fvg_bot.py paper --all-coins --quote USDT --days 7 2>&1 | tee reports/ict_paper_cycle.txt
+          python paper_trader.py --all-coins --quote USDT --days 7 2>&1 | tee reports/ict_paper_cycle.txt
 
       - name: Publish paper cycle
         uses: actions/upload-artifact@v4
@@ -39,5 +39,19 @@ jobs:
           name: ict-paper-${{ github.run_id }}
           path: |
             reports/ict_paper_cycle.txt
-            reports/latest_signals.json
+            reports/paper_state.json
+            reports/paper_trades.csv
+            reports/paper_equity.csv
           retention-days: 14
+
+      - name: Persist paper state
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add reports/paper_state.json reports/paper_trades.csv reports/paper_equity.csv
+          if git diff --cached --quiet; then
+            echo "No paper-state changes to commit."
+          else
+            git commit -m "chore: persist ICT paper state"
+            git push
+          fi
