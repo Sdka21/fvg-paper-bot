@@ -1,0 +1,43 @@
+name: ICT long-only spot paper trader
+
+on:
+  schedule:
+    - cron: "3,18,33,48 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: ict-paper-trader
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  paper:
+    runs-on: ubuntu-latest
+    timeout-minutes: 14
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run ICT paper cycle
+        run: |
+          mkdir -p reports
+          python fvg_bot.py paper --all-coins --quote USDT --days 7 2>&1 | tee reports/ict_paper_cycle.txt
+
+      - name: Publish paper cycle
+        uses: actions/upload-artifact@v4
+        with:
+          name: ict-paper-${{ github.run_id }}
+          path: |
+            reports/ict_paper_cycle.txt
+            reports/latest_signals.json
+          retention-days: 14
