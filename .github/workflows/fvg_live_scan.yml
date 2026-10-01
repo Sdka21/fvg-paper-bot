@@ -1,6 +1,9 @@
 name: FVG live paper scanner
 
 on:
+  push:
+    paths:
+      - ".github/workflows/fvg_live_scan.yml"
   schedule:
     - cron: "2,17,32,47 * * * *"
   workflow_dispatch:
