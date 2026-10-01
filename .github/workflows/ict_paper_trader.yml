@@ -55,7 +55,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add reports/paper_state.json reports/paper_trades.csv reports/paper_equity.csv
+          git add -f reports/paper_state.json reports/paper_trades.csv reports/paper_equity.csv
           if git diff --cached --quiet; then
             echo "No paper-state changes to commit."
           else
