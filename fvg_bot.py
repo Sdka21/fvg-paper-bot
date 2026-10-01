@@ -430,7 +430,13 @@ def create_exchange():
         "https://data-api.binance.vision/api/v3",
     ).rstrip("/")
     exchange = ccxt.binance(
-        {"enableRateLimit": True, "options": {"defaultType": "spot"}}
+        {
+            "enableRateLimit": True,
+            "options": {
+                "defaultType": "spot",
+                "fetchMarkets": {"types": ["spot"]},
+            },
+        }
     )
     exchange.urls["api"]["public"] = public_base
     exchange.load_markets()
