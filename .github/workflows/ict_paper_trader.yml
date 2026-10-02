@@ -38,7 +38,7 @@ jobs:
       - name: Run persistent ICT paper cycle
         run: |
           mkdir -p reports
-          python paper_trader.py --all-coins --quote USDT --days 7 2>&1 | tee reports/ict_paper_cycle.txt
+          python paper_trader.py --all-coins --quote USDT --days 7 --max-open-positions 9 --capital-deployment 0.90 2>&1 | tee reports/ict_paper_cycle.txt
 
       - name: Publish paper cycle
         uses: actions/upload-artifact@v4
