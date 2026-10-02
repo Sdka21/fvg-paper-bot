@@ -116,7 +116,9 @@ def main():
     p.add_argument("--min-gap-atr", type=float, default=0.12)
     p.add_argument("--min-impulse-ratio", type=float, default=0.55)
     p.add_argument("--min-volume-ratio", type=float, default=1.0)
-    p.add_argument("--max-open-positions", type=int, default=5)
+    p.add_argument("--max-open-positions", type=int, default=9)
+    p.add_argument("--capital-deployment", type=float, default=0.90,
+                   help="Maximum fraction of current equity deployed across open positions.")
     args = p.parse_args()
 
     exchange = create_exchange()
@@ -125,6 +127,7 @@ def main():
     ]
     state = load_state(args.initial_equity, args.max_open_positions)
     state["max_open_positions"] = args.max_open_positions
+    state["capital_deployment"] = args.capital_deployment
     signals = []
     latest_prices = {}
     stamp_now = now_iso()
@@ -188,8 +191,15 @@ def main():
                     stop = min(float(stop_base), z["lower"]) - args.stop_atr_buffer * float(row["atr"])
                     risk_unit = entry_price - stop
                     if risk_unit > 0 and state["cash"] > 0:
+                        # Compound from current marked equity. Each slot targets ~10% of
+                        # current equity, with the portfolio capped at 90% deployed.
                         risk_cash = state["equity"] * args.risk_fraction
-                        qty = min(risk_cash / risk_unit, state["cash"] * 0.95 / entry_price)
+                        deployed = sum(p["qty"] * p["entry_price"] for p in state["open_positions"])
+                        deployment_room = max(0.0, state["equity"] * args.capital_deployment - deployed)
+                        slot_allocation = state["equity"] * args.capital_deployment / max(state["max_open_positions"], 1)
+                        allocation = min(slot_allocation, deployment_room)
+                        qty = min(risk_cash / risk_unit, allocation / (entry_price * (1 + args.slippage_bps / 10000.0)),
+                                  state["cash"] / (entry_price * (1 + args.slippage_bps / 10000.0)))
                         if qty > 0:
                             target = entry_price + args.reward_risk * risk_unit
                             cost = qty * entry_price * (1 + args.slippage_bps / 10000.0)
