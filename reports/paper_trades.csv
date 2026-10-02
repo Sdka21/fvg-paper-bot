@@ -1,1 +1,2 @@
-
+symbol,entry_time,exit_time,entry_price,exit_price,quantity,gross_pnl,fees,net_pnl,exit_reason,stop_price,target_price,zone_lower,zone_upper,sweep_level
+AAOIB/USDT,2026-10-02T09:00:00+00:00,2026-10-02T15:00:00+00:00,109.064505,111.3273085,4.219425853234654,9.547731588689878,0.9299269157231702,8.617804672966708,take_profit,107.82350000000001,111.383,108.38,108.89,107.87
