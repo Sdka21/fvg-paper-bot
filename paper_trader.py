@@ -116,7 +116,7 @@ def main():
     p.add_argument("--min-gap-atr", type=float, default=0.12)
     p.add_argument("--min-impulse-ratio", type=float, default=0.55)
     p.add_argument("--min-volume-ratio", type=float, default=1.0)
-    p.add_argument("--max-open-positions", type=int, default=1)
+    p.add_argument("--max-open-positions", type=int, default=5)
     args = p.parse_args()
 
     exchange = create_exchange()
