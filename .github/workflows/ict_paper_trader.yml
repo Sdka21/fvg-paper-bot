@@ -18,6 +18,8 @@ concurrency:
 
 permissions:
   contents: write
+  pages: write
+  id-token: write
 
 jobs:
   paper:
@@ -62,3 +64,24 @@ jobs:
             git commit -m "chore: persist ICT paper state"
             git push
           fi
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Build dashboard site
+        run: |
+          rm -rf dashboard-site
+          mkdir -p dashboard-site/data
+          cp dashboard/index.html dashboard-site/index.html
+          cp reports/paper_state.json dashboard-site/data/paper_state.json
+          cp reports/paper_equity.csv dashboard-site/data/paper_equity.csv
+          cp reports/paper_trades.csv dashboard-site/data/paper_trades.csv
+
+      - name: Upload dashboard
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dashboard-site
+
+      - name: Deploy dashboard
+        id: deployment
+        uses: actions/deploy-pages@v4
