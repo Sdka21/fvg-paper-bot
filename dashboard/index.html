@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ICT FVG Paper Trader Dashboard</title>
+<style>
+:root{color-scheme:dark;--bg:#0b1020;--panel:#121a2d;--panel2:#18233b;--text:#edf2ff;--muted:#91a0bc;--line:#263653;--good:#35d07f;--bad:#ff647c;--accent:#79a7ff}*{box-sizing:border-box}body{margin:0;background:linear-gradient(180deg,#0b1020,#0d1425);color:var(--text);font:14px/1.45 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}main{max-width:1400px;margin:auto;padding:22px}.top{display:flex;justify-content:space-between;gap:16px;align-items:flex-start;margin-bottom:20px}.top h1{margin:0 0 4px;font-size:24px}.top p{margin:0;color:var(--muted)}button{border:1px solid var(--line);background:var(--panel2);color:var(--text);padding:9px 13px;border-radius:9px;cursor:pointer}button:hover{border-color:var(--accent)}.status{font-size:12px;color:var(--muted);margin-top:7px}.grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px;margin-bottom:14px}.card,.panel{background:rgba(18,26,45,.92);border:1px solid var(--line);border-radius:14px}.card{padding:15px}.label{color:var(--muted);font-size:12px}.value{font-size:23px;font-weight:700;margin-top:4px}.good{color:var(--good)}.bad{color:var(--bad)}.layout{display:grid;grid-template-columns:1.25fr .75fr;gap:14px;margin-bottom:14px}.panel{padding:15px;min-width:0}.panel h2{font-size:16px;margin:0 0 12px}.chart{height:270px;overflow:hidden}.chart svg{width:100%;height:100%;display:block}.legend{display:flex;gap:18px;color:var(--muted);font-size:12px;margin-top:7px}.legend span:before{content:"";display:inline-block;width:18px;height:2px;background:var(--accent);vertical-align:middle;margin-right:6px}.table-wrap{overflow:auto;max-height:480px}.table-wrap.small{max-height:390px}table{width:100%;border-collapse:collapse;min-width:720px}th,td{text-align:left;padding:9px 8px;border-bottom:1px solid var(--line);white-space:nowrap}th{position:sticky;top:0;background:var(--panel);color:var(--muted);font-weight:600;font-size:12px}td.num,th.num{text-align:right}.empty{text-align:center;color:var(--muted);padding:28px}.tag{display:inline-block;padding:3px 7px;border-radius:999px;font-size:11px;background:var(--panel2)}.progress{height:7px;background:#202d48;border-radius:99px;overflow:hidden;margin-top:7px}.progress i{display:block;height:100%;background:var(--accent)}@media(max-width:1050px){.grid{grid-template-columns:repeat(3,1fr)}.layout{grid-template-columns:1fr}}@media(max-width:650px){main{padding:13px}.top{align-items:stretch;flex-direction:column}.grid{grid-template-columns:repeat(2,1fr)}.value{font-size:19px}.chart{height:220px}}
+</style>
+</head>
+<body>
+<main id="app">
+  <div class="top"><div><h1>ICT / FVG Paper Trader</h1><p>Binance Spot · long-only · 15m execution · paper trading</p><div class="status" id="updated">Loading latest state…</div></div><button id="refresh" type="button">Refresh</button></div>
+  <section class="grid" id="metrics"></section>
+  <section class="layout">
+    <div class="panel"><h2>Equity curve</h2><div class="chart" id="equityChart"></div><div class="legend"><span>Equity</span><span style="color:var(--muted)">Starting equity: $1,000</span></div></div>
+    <div class="panel"><h2>Performance</h2><div id="performance"></div></div>
+  </section>
+  <section class="panel" style="margin-bottom:14px"><h2>Open positions</h2><div class="table-wrap" id="openTable"></div></section>
+  <section class="panel"><h2>Closed trades</h2><div class="table-wrap small" id="closedTable"></div></section>
+</main>
+<script>
+const root=document.getElementById('app');
+const money=n=>Number.isFinite(n)?'$'+n.toFixed(2):'—';
+const pct=n=>Number.isFinite(n)?(n*100).toFixed(2)+'%':'—';
+const price=n=>Number.isFinite(n)?(Math.abs(n)>=100?n.toFixed(2):Math.abs(n)>=1?n.toFixed(4):n.toFixed(6)):'—';
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+function parseCsv(text){const rows=[];let row=[],cell='',q=false;for(let i=0;i<text.length;i++){const c=text[i],n=text[i+1];if(c==='"'){if(q&&n==='"'){cell+='"';i++}else q=!q}else if(c===','&&!q){row.push(cell);cell=''}else if((c==='\n'||c==='\r')&&!q){if(c==='\r'&&n==='\n')i++;row.push(cell);cell='';if(row.some(x=>x!==''))rows.push(row);row=[]}else cell+=c}if(cell!==''||row.length){row.push(cell);if(row.some(x=>x!==''))rows.push(row)}const head=rows.shift()||[];return rows.map(r=>Object.fromEntries(head.map((h,i)=>[h,r[i]??''])))}
+async function load(){
+  const bust='?t='+Date.now();
+  const [stateR,equityR,tradesR]=await Promise.all([fetch('data/paper_state.json'+bust),fetch('data/paper_equity.csv'+bust),fetch('data/paper_trades.csv'+bust)]);
+  if(!stateR.ok||!equityR.ok||!tradesR.ok)throw new Error('Dashboard data is not available yet.');
+  const state=await stateR.json();const equity=parseCsv(await equityR.text());const trades=parseCsv(await tradesR.text()).map(t=>({...t,net_pnl:Number(t.net_pnl),gross_pnl:Number(t.gross_pnl),fees:Number(t.fees)}));
+  render(state,equity,trades);
+}
+function render(s,eq,trades){
+  const wins=trades.filter(t=>t.net_pnl>0),losses=trades.filter(t=>t.net_pnl<=0);const realized=trades.reduce((a,t)=>a+t.net_pnl,0);const fees=trades.reduce((a,t)=>a+t.fees,0);const grossWin=wins.reduce((a,t)=>a+t.net_pnl,0);const grossLoss=Math.abs(losses.reduce((a,t)=>a+t.net_pnl,0));const pf=grossLoss?grossWin/grossLoss:0;const avgWin=wins.length?grossWin/wins.length:0;const avgLoss=losses.length?grossLoss/losses.length:0;const peak=Math.max(1000,...eq.map(x=>Number(x.equity)));const maxDd=eq.reduce((m,x)=>Math.max(m,(peak-Number(x.equity))/peak),0);const deployment=s.equity?((s.equity-s.cash)/s.equity):0;
+  document.getElementById('updated').textContent='Last bot cycle: '+new Date(s.last_run_at).toLocaleString()+' · Auto-refresh available';
+  document.getElementById('metrics').innerHTML=[['Equity',money(Number(s.equity)),''],['Realized P&L',money(realized),realized>=0?'good':'bad'],['Open positions',`${s.open_positions.length} / 9`,'' ],['Closed trades',String(trades.length),'' ],['Win rate',pct(trades.length?wins.length/trades.length:0),wins.length>=losses.length?'good':'bad']].map(x=>`<div class="card"><div class="label">${x[0]}</div><div class="value ${x[2]}">${x[1]}</div></div>`).join('');
+  document.getElementById('performance').innerHTML=`<div class="card" style="margin-bottom:10px"><div class="label">Profit factor</div><div class="value">${pf?pf.toFixed(2):'—'}</div></div><div class="card" style="margin-bottom:10px"><div class="label">Fees paid</div><div class="value">${money(fees)}</div></div><div class="card" style="margin-bottom:10px"><div class="label">Average winner / loser</div><div class="value">${money(avgWin)} / -${money(avgLoss).slice(1)}</div></div><div class="card"><div class="label">Current deployment</div><div class="value">${pct(deployment)}</div><div class="progress"><i style="width:${Math.min(100,Math.max(0,deployment*100))}%"></i></div><div class="status">Cash ${money(Number(s.cash))} · Max drawdown observed ${pct(maxDd)}</div></div>`;
+  document.getElementById('openTable').innerHTML=s.open_positions.length?`<table><thead><tr><th>Symbol</th><th>Entry</th><th>Stop</th><th>Target</th><th>Qty</th><th>Entry time</th></tr></thead><tbody>${s.open_positions.map(p=>`<tr><td><strong>${esc(p.symbol)}</strong></td><td>${price(Number(p.entry_price))}</td><td class="bad">${price(Number(p.stop_price))}</td><td class="good">${price(Number(p.target_price))}</td><td class="num">${Number(p.qty).toFixed(4)}</td><td>${new Date(p.entry_time).toLocaleString()}</td></tr>`).join('')}</tbody></table>`:'<div class="empty">No open positions.</div>';
+  document.getElementById('closedTable').innerHTML=trades.length?`<table><thead><tr><th>Symbol</th><th>Entry</th><th>Exit</th><th>Result</th><th>Reason</th><th>Entry time</th><th>Exit time</th></tr></thead><tbody>${trades.slice().reverse().map(t=>`<tr><td><strong>${esc(t.symbol)}</strong></td><td>${price(Number(t.entry_price))}</td><td>${price(Number(t.exit_price))}</td><td class="${t.net_pnl>=0?'good':'bad'}">${t.net_pnl>=0?'+':''}${money(t.net_pnl)}</td><td><span class="tag">${esc(t.exit_reason)}</span></td><td>${new Date(t.entry_time).toLocaleString()}</td><td>${new Date(t.exit_time).toLocaleString()}</td></tr>`).join('')}</tbody></table>`:'<div class="empty">No closed trades yet.</div>';
+  drawChart(eq.map(x=>({t:new Date(x.timestamp),v:Number(x.equity)})));
+}
+function drawChart(points){const el=document.getElementById('equityChart');if(!points.length){el.innerHTML='<div class="empty">No equity history.</div>';return}const w=900,h=270,p=28;const vals=points.map(x=>x.v),min=Math.min(1000,...vals),max=Math.max(1000,...vals),span=Math.max(1,max-min);const X=i=>p+(w-2*p)*(i/Math.max(1,points.length-1)),Y=v=>h-p-(h-2*p)*(v-min)/span;const path=points.map((x,i)=>(i?'L':'M')+X(i).toFixed(1)+' '+Y(x.v).toFixed(1)).join(' ');const last=points[points.length-1];el.innerHTML=`<svg viewBox="0 0 ${w} ${h}" role="img" aria-label="Equity curve"><line x1="${p}" y1="${Y(1000)}" x2="${w-p}" y2="${Y(1000)}" stroke="var(--line)" stroke-dasharray="5 5"/><path d="${path}" fill="none" stroke="var(--accent)" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/><circle cx="${X(points.length-1)}" cy="${Y(last.v)}" r="5" fill="var(--accent)"/><text x="${p}" y="18" fill="var(--muted)" font-size="12">${money(max)}</text><text x="${p}" y="${h-5}" fill="var(--muted)" font-size="12">${money(min)}</text><text x="${w-p}" y="18" text-anchor="end" fill="var(--text)" font-size="13">${money(last.v)}</text></svg>`}
+document.getElementById('refresh').addEventListener('click',async()=>{document.getElementById('updated').textContent='Refreshing…';try{await load()}catch(e){document.getElementById('updated').textContent=e.message}});
+load().catch(e=>{document.getElementById('updated').textContent=e.message;document.getElementById('metrics').innerHTML='<div class="card" style="grid-column:1/-1"><div class="value">Dashboard waiting for its first published data snapshot.</div></div>'});
+setInterval(()=>load().catch(()=>{}),60000);
+</script>
+</body>
+</html>
