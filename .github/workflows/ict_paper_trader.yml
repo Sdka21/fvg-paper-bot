@@ -1,9 +1,10 @@
-name: ICT long-only spot paper trader
+name: ICT quick scalp long-only spot paper trader
 
 on:
   push:
     branches: [main]
     paths:
+      - "scalp_paper_trader.py"
       - "paper_trader.py"
       - ".github/workflows/ict_paper_trader.yml"
       - "fvg_bot.py"
@@ -37,31 +38,37 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Run persistent ICT paper cycle
+      - name: Run quick scalp paper cycle
         run: |
           mkdir -p reports
-          python paper_trader.py --all-coins --quote USDT --days 7 --max-open-positions 9 --capital-deployment 0.90 2>&1 | tee reports/ict_paper_cycle.txt
+          python scalp_paper_trader.py --all-coins --quote USDT --days 2 --max-open-positions 9 --capital-deployment 0.90 2>&1 | tee reports/scalp_paper_cycle.txt
 
-      - name: Publish paper cycle
+      - name: Publish scalp cycle
         uses: actions/upload-artifact@v4
         with:
-          name: ict-paper-${{ github.run_id }}
+          name: ict-scalp-paper-${{ github.run_id }}
           path: |
-            reports/ict_paper_cycle.txt
-            reports/paper_state.json
-            reports/paper_trades.csv
-            reports/paper_equity.csv
+            reports/scalp_paper_cycle.txt
+            reports/scalp_state.json
+            reports/scalp_trades.csv
+            reports/scalp_equity.csv
           retention-days: 14
+
+      - name: Publish scalp state for dashboard
+        run: |
+          cp reports/scalp_state.json reports/paper_state.json
+          cp reports/scalp_trades.csv reports/paper_trades.csv
+          cp reports/scalp_equity.csv reports/paper_equity.csv
 
       - name: Persist paper state
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -f reports/paper_state.json reports/paper_trades.csv reports/paper_equity.csv
+          git add -f reports/scalp_state.json reports/scalp_trades.csv reports/scalp_equity.csv reports/paper_state.json reports/paper_trades.csv reports/paper_equity.csv
           if git diff --cached --quiet; then
             echo "No paper-state changes to commit."
           else
-            git commit -m "chore: persist ICT paper state"
+            git commit -m "chore: persist ICT scalp paper state"
             git push
           fi
 
@@ -73,9 +80,9 @@ jobs:
           rm -rf dashboard-site
           mkdir -p dashboard-site/data
           cp dashboard/index.html dashboard-site/index.html
-          cp reports/paper_state.json dashboard-site/data/paper_state.json
-          cp reports/paper_equity.csv dashboard-site/data/paper_equity.csv
-          cp reports/paper_trades.csv dashboard-site/data/paper_trades.csv
+          cp reports/scalp_state.json dashboard-site/data/paper_state.json
+          cp reports/scalp_equity.csv dashboard-site/data/paper_equity.csv
+          cp reports/scalp_trades.csv dashboard-site/data/paper_trades.csv
 
       - name: Upload dashboard
         uses: actions/upload-pages-artifact@v3
