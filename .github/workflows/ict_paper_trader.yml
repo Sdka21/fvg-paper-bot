@@ -65,7 +65,7 @@ jobs:
           from pathlib import Path
 
           state = json.loads(Path("reports/scalp_state.json").read_text())
-          required = ["equity", "cash", "open_positions", "trades", "equity_curve"]
+          required = ["equity", "cash", "open_positions", "trades", "equity_curve", "data_status", "last_prices"]
           missing = [k for k in required if k not in state]
           if missing:
               raise SystemExit(f"Invalid scalp state; missing keys: {missing}")
@@ -76,6 +76,13 @@ jobs:
               f"equity={state.get('equity')}",
               f"open_positions={len(state.get('open_positions', []))}",
               f"closed_trades={len(state.get('trades', []))}",
+          )
+          print(
+              "Market coverage:",
+              f"scanned={state.get('symbols_scanned')}",
+              f"with_data={state.get('symbols_with_data')}",
+              f"eligible_new_entries={state.get('eligible_new_entry_symbols')}",
+              f"errors={len(state.get('scan_errors', {}))}",
           )
           if state.get("last_error"):
               print("Last data error:", state["last_error"])
@@ -136,7 +143,7 @@ jobs:
           cp reports/paper_trades.csv dashboard-site/data/paper_trades.csv
 
       - name: Upload dashboard
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@v4
         with:
           path: dashboard-site
 
