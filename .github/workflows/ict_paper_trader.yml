@@ -15,7 +15,8 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: ict-paper-trader
+  group: ict-paper-trader-${{ github.ref }}
+  queue: max
   cancel-in-progress: false
 
 permissions:
