@@ -1,15 +1,8 @@
 name: ICT quick scalp long-only spot paper trader
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - "scalp_paper_trader.py"
-      - "paper_trader.py"
-      - "fvg_bot.py"
-      - "dashboard/index.html"
-      - ".github/workflows/ict_paper_trader.yml"
-      - "requirements.txt"
+  # Deliberately do not trigger on the workflow's own state commit.
+  # State is advanced by the scheduled/manual paper cycles below.
   schedule:
     - cron: "3,18,33,48 * * * *"
   workflow_dispatch:
@@ -126,7 +119,19 @@ jobs:
             echo "No paper-state changes to commit."
           else
             git commit -m "chore: persist ICT scalp paper state"
-            git push
+            # Another state commit can land between checkout and push. Rebase
+            # our report-only commit onto the newest main and retry safely.
+            for attempt in 1 2 3; do
+              if git push origin HEAD:main; then
+                break
+              fi
+              if [ "$attempt" -eq 3 ]; then
+                echo "Unable to push paper state after $attempt attempts."
+                exit 1
+              fi
+              git fetch origin main
+              git rebase origin/main
+            done
           fi
 
       - name: Configure GitHub Pages
