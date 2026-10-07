@@ -38,7 +38,10 @@ def create_exchange():
     public_base = os.getenv("BINANCE_PUBLIC_API_BASE", DEFAULT_PUBLIC_API).rstrip("/")
     exchange = ccxt.binance({
         "enableRateLimit": True,
-        "options": {"defaultType": "spot"},
+        "options": {
+            "defaultType": "spot",
+            "fetchMarkets": {"types": ["spot"]},
+        },
     })
     exchange.urls["api"]["public"] = public_base
     return exchange
