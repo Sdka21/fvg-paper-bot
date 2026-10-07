@@ -6,8 +6,9 @@ on:
     paths:
       - "scalp_paper_trader.py"
       - "paper_trader.py"
-      - ".github/workflows/ict_paper_trader.yml"
       - "fvg_bot.py"
+      - "dashboard/index.html"
+      - ".github/workflows/ict_paper_trader.yml"
       - "requirements.txt"
   schedule:
     - cron: "3,18,33,48 * * * *"
@@ -25,7 +26,7 @@ permissions:
 jobs:
   paper:
     runs-on: ubuntu-latest
-    timeout-minutes: 14
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -39,9 +40,45 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Run quick scalp paper cycle
+        env:
+          BINANCE_PUBLIC_API_BASE: https://data-api.binance.vision/api/v3
         run: |
+          set -o pipefail
           mkdir -p reports
-          python scalp_paper_trader.py --all-coins --quote USDT --days 2 --max-open-positions 9 --capital-deployment 0.90 2>&1 | tee reports/scalp_paper_cycle.txt
+          python scalp_paper_trader.py \
+            --all-coins \
+            --quote USDT \
+            --days 2 \
+            --max-open-positions 9 \
+            --capital-deployment 0.90 \
+            2>&1 | tee reports/scalp_paper_cycle.txt
+
+      - name: Validate generated paper reports
+        run: |
+          set -euo pipefail
+          for f in reports/scalp_state.json reports/scalp_trades.csv reports/scalp_equity.csv; do
+            test -s "$f" || { echo "Missing or empty report: $f"; exit 1; }
+          done
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          state = json.loads(Path("reports/scalp_state.json").read_text())
+          required = ["equity", "cash", "open_positions", "trades", "equity_curve"]
+          missing = [k for k in required if k not in state]
+          if missing:
+              raise SystemExit(f"Invalid scalp state; missing keys: {missing}")
+
+          print(
+              "Paper state:",
+              f"status={state.get('data_status')}",
+              f"equity={state.get('equity')}",
+              f"open_positions={len(state.get('open_positions', []))}",
+              f"closed_trades={len(state.get('trades', []))}",
+          )
+          if state.get("last_error"):
+              print("Last data error:", state["last_error"])
+          PY
 
       - name: Publish scalp cycle
         uses: actions/upload-artifact@v4
@@ -52,19 +89,31 @@ jobs:
             reports/scalp_state.json
             reports/scalp_trades.csv
             reports/scalp_equity.csv
+          if-no-files-found: error
           retention-days: 14
 
       - name: Publish scalp state for dashboard
         run: |
+          set -euo pipefail
           cp reports/scalp_state.json reports/paper_state.json
           cp reports/scalp_trades.csv reports/paper_trades.csv
           cp reports/scalp_equity.csv reports/paper_equity.csv
+          test -s reports/paper_state.json
+          test -s reports/paper_trades.csv
+          test -s reports/paper_equity.csv
 
       - name: Persist paper state
         run: |
+          set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -f reports/scalp_state.json reports/scalp_trades.csv reports/scalp_equity.csv reports/paper_state.json reports/paper_trades.csv reports/paper_equity.csv
+          git add -f \
+            reports/scalp_state.json \
+            reports/scalp_trades.csv \
+            reports/scalp_equity.csv \
+            reports/paper_state.json \
+            reports/paper_trades.csv \
+            reports/paper_equity.csv
           if git diff --cached --quiet; then
             echo "No paper-state changes to commit."
           else
@@ -77,12 +126,13 @@ jobs:
 
       - name: Build dashboard site
         run: |
+          set -euo pipefail
           rm -rf dashboard-site
           mkdir -p dashboard-site/data
           cp dashboard/index.html dashboard-site/index.html
-          cp reports/scalp_state.json dashboard-site/data/paper_state.json
-          cp reports/scalp_equity.csv dashboard-site/data/paper_equity.csv
-          cp reports/scalp_trades.csv dashboard-site/data/paper_trades.csv
+          cp reports/paper_state.json dashboard-site/data/paper_state.json
+          cp reports/paper_equity.csv dashboard-site/data/paper_equity.csv
+          cp reports/paper_trades.csv dashboard-site/data/paper_trades.csv
 
       - name: Upload dashboard
         uses: actions/upload-pages-artifact@v3
