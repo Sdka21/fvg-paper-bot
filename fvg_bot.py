@@ -393,10 +393,28 @@ def create_exchange():
 
 
 def get_all_spot_symbols(exchange, quote="USDT"):
-    return sorted({
-        m["symbol"] for m in exchange.markets.values()
-        if m.get("spot") and m.get("active", True) and m.get("quote") == quote and "/" in m["symbol"]
-    })
+    """Return active crypto spot symbols, excluding tokenised-equity style bases."""
+    excluded_suffixes = tuple(
+        s.strip().upper()
+        for s in os.getenv("EXCLUDED_BASE_SUFFIXES", "B").split(",")
+        if s.strip()
+    )
+    excluded_exact = {
+        "AAPL", "AMZN", "COIN", "GOOG", "GOOGL", "META", "MSFT",
+        "MSTR", "NFLX", "NVDA", "ORCL", "TSLA",
+    }
+    symbols = set()
+    for m in exchange.markets.values():
+        if not m.get("spot") or not m.get("active", True) or m.get("quote") != quote:
+            continue
+        symbol = m.get("symbol", "")
+        base = str(m.get("base") or "").upper()
+        if "/" not in symbol or not base:
+            continue
+        if base in excluded_exact or any(base.endswith(s) for s in excluded_suffixes):
+            continue
+        symbols.add(symbol)
+    return sorted(symbols)
 
 
 def scan_zones(df, symbol, args):
