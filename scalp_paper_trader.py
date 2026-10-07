@@ -22,6 +22,21 @@ TRADES_PATH = "reports/scalp_trades.csv"
 EQUITY_PATH = "reports/scalp_equity.csv"
 CANDLE_MS = 300_000
 DEFAULT_PUBLIC_API = "https://data-api.binance.vision/api/v3"
+EXCLUDED_BASE_SUFFIXES = tuple(s.strip().upper() for s in os.getenv("EXCLUDED_BASE_SUFFIXES", "B").split(",") if s.strip())
+
+def is_crypto_spot_market(market, quote):
+    """Eligible crypto spot market; excludes tokenised-equity style bases."""
+    if not market.get("spot") or not market.get("active", True):
+        return False
+    if market.get("quote") != quote:
+        return False
+    base = str(market.get("base") or "").upper()
+    if not base or any(base.endswith(suffix) for suffix in EXCLUDED_BASE_SUFFIXES):
+        return False
+    if base in {"AAPL","AMZN","COIN","GOOGL","GOOG","META","MSFT","MSTR","NFLX","NVDA","ORCL","TSLA"}:
+        return False
+    return True
+
 
 
 def now_iso():
@@ -251,6 +266,11 @@ def load_state(initial, max_open):
         s.setdefault("capital_deployment", 0.90)
         s.setdefault("last_signals", [])
         s.setdefault("data_status", "unknown")
+        s.setdefault("last_error", None)
+        s.setdefault("last_prices", {})
+        s.setdefault("scan_errors", {})
+        s.setdefault("symbols_scanned", 0)
+        s.setdefault("symbols_with_data", 0)
         return s
 
     return {
@@ -268,6 +288,10 @@ def load_state(initial, max_open):
         "last_signals": [],
         "data_status": "new",
         "last_error": None,
+        "last_prices": {},
+        "scan_errors": {},
+        "symbols_scanned": 0,
+        "symbols_with_data": 0,
     }
 
 
@@ -308,6 +332,7 @@ def close_position(s, p, exit_price, reason, fee_bps, slip_bps, stamp):
         "zone_lower": p["zone_lower"],
         "zone_upper": p["zone_upper"],
         "sweep_level": p.get("sweep_level"),
+        "slippage_cost_estimate": (p["entry_price"] + exit_price) * qty * slip,
     })
 
 
@@ -359,20 +384,19 @@ def main():
         mark_error_and_save(state, stamp_now, exc)
         return
 
-    symbols = (
-        [
-            s for s in exchange.markets
-            if s.endswith("/" + args.quote)
-            and exchange.markets[s].get("spot")
-            and exchange.markets[s].get("active")
-        ]
+    eligible_symbols = (
+        [s for s, market in exchange.markets.items() if is_crypto_spot_market(market, args.quote)]
         if args.all_coins
         else ["BTC/USDT", "ETH/USDT", "SOL/USDT"]
     )
+    open_symbols = {p["symbol"] for p in state["open_positions"]}
+    symbols = sorted(set(eligible_symbols) | open_symbols)
+    allowed_new_entries = set(eligible_symbols)
 
-    latest = {}
+    latest = dict(state.get("last_prices", {}))
     signals = []
     successful_symbols = 0
+    scan_errors = {}
 
     for symbol in symbols:
         try:
@@ -387,6 +411,7 @@ def main():
                 int(row.timestamp), unit="ms", tz="UTC"
             ).isoformat()
             latest[symbol] = float(row.close)
+            state["last_prices"][symbol] = float(row.close)
 
             for p in list(state["open_positions"]):
                 if p["symbol"] != symbol:
@@ -416,6 +441,7 @@ def main():
 
             if (
                 z
+                and symbol in allowed_new_entries
                 and len(state["open_positions"]) < args.max_open_positions
                 and row.htf_bias != "bearish"
                 and row.low <= z["upper"]
@@ -488,10 +514,17 @@ def main():
             state["processed"][symbol] = ts
 
         except Exception as exc:
+            scan_errors[symbol] = f"{type(exc).__name__}: {exc}"
             print(
                 f"ERROR {symbol}: {type(exc).__name__}: {exc}",
                 flush=True,
             )
+
+    state["scan_errors"] = scan_errors
+    state["symbols_scanned"] = len(symbols)
+    state["symbols_with_data"] = successful_symbols
+    state["eligible_new_entry_symbols"] = len(eligible_symbols)
+    state["excluded_market_count"] = max(0, len(exchange.markets) - len(eligible_symbols))
 
     value = state["cash"] + sum(
         p["qty"] * latest.get(p["symbol"], p["entry_price"])
@@ -501,7 +534,8 @@ def main():
     state["last_run_at"] = stamp_now
     state["last_signals"] = signals
     state["data_status"] = (
-        "ok" if successful_symbols else "no_data"
+        "ok" if successful_symbols and not scan_errors else
+        "partial" if successful_symbols else "no_data"
     )
     state["last_error"] = None if successful_symbols else {
         "type": "NoMarketData",
@@ -515,6 +549,8 @@ def main():
         "open_positions": len(state["open_positions"]),
         "symbols_scanned": len(symbols),
         "symbols_with_data": successful_symbols,
+        "symbols_with_errors": len(scan_errors),
+        "eligible_new_entry_symbols": len(eligible_symbols),
     })
     save_state(state)
 
