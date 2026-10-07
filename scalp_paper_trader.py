@@ -1,0 +1,196 @@
+#!/usr/bin/env python3
+"""Quick ICT scalp paper trader: 5m execution with 15m bias.
+
+Paper-only, long-only Binance Spot. The existing 15m ICT trader is kept as
+an untouched baseline; this script uses separate scalp state/report files so
+results can be compared without contaminating the baseline sample.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import time
+from datetime import datetime, timezone
+
+import ccxt
+import numpy as np
+import pandas as pd
+
+STATE_PATH = "reports/scalp_state.json"
+TRADES_PATH = "reports/scalp_trades.csv"
+EQUITY_PATH = "reports/scalp_equity.csv"
+CANDLE_MS = 300_000
+
+
+def now_iso():
+    return datetime.now(timezone.utc).isoformat()
+
+
+def fetch_ohlcv(exchange, symbol, timeframe, days):
+    if symbol not in exchange.markets:
+        raise ValueError(f"{symbol} is not listed on {exchange.id}")
+    since = exchange.milliseconds() - days * 86_400_000
+    rows, cursor = [], since
+    while cursor < exchange.milliseconds():
+        batch = exchange.fetch_ohlcv(symbol, timeframe=timeframe, since=cursor, limit=1000)
+        if not batch:
+            break
+        rows.extend(batch)
+        nxt = int(batch[-1][0]) + 1
+        if nxt <= cursor:
+            break
+        cursor = nxt
+        if len(batch) < 2:
+            break
+        time.sleep(exchange.rateLimit / 1000)
+    if not rows:
+        raise RuntimeError(f"No OHLCV returned for {symbol}")
+    d = pd.DataFrame(rows, columns=["timestamp", "open", "high", "low", "close", "volume"])
+    d = d.drop_duplicates("timestamp").sort_values("timestamp")
+    now = exchange.milliseconds()
+    return d[d.timestamp + CANDLE_MS <= now].reset_index(drop=True)
+
+
+def indicators_5m(d):
+    x = d.copy()
+    prev = x.close.shift(1)
+    tr = pd.concat([(x.high-x.low), (x.high-prev).abs(), (x.low-prev).abs()], axis=1).max(axis=1)
+    x["atr"] = tr.rolling(14, min_periods=14).mean()
+    x["vol_median"] = x.volume.rolling(20, min_periods=20).median()
+    # Completed 15m candles, lagged by one 15m bar to avoid look-ahead.
+    h = x.set_index(pd.to_datetime(x.timestamp, unit="ms", utc=True)).resample("15min").agg(
+        {"open":"first","high":"max","low":"min","close":"last","volume":"sum"}
+    ).dropna()
+    h["ema20"] = h.close.ewm(span=20, adjust=False, min_periods=20).mean()
+    h["ema50"] = h.close.ewm(span=50, adjust=False, min_periods=50).mean()
+    h["bias"] = np.where((h.close > h.ema20) & (h.ema20 > h.ema50), "bullish",
+                          np.where((h.close < h.ema20) & (h.ema20 < h.ema50), "bearish", "neutral"))
+    h["bias_prev"] = h.bias.shift(1)
+    idx = pd.to_datetime(x.timestamp, unit="ms", utc=True).dt.floor("15min")
+    x["htf_bias"] = h.bias_prev.reindex(idx, method="ffill").to_numpy()
+    return x
+
+
+def detect_scalp_fvg(d, i, symbol, min_gap_atr, min_impulse, min_volume):
+    if i < 55:
+        return None
+    a, b, c = d.iloc[i-2], d.iloc[i-1], d.iloc[i]
+    if not np.isfinite(c.atr) or c.atr <= 0 or not np.isfinite(b.vol_median) or b.vol_median <= 0:
+        return None
+    rng = float(b.high-b.low)
+    impulse = abs(float(b.close-b.open))/rng if rng > 0 else 0.0
+    volume_ratio = float(b.volume/b.vol_median)
+    if float(c.low) <= float(a.high) or float(b.close) <= float(b.open):
+        return None
+    lower, upper = float(a.high), float(c.low)
+    gap_atr = (upper-lower)/float(c.atr)
+    if gap_atr < min_gap_atr or impulse < min_impulse or volume_ratio < min_volume:
+        return None
+    if c.htf_bias == "bearish":
+        return None
+    # Sweep of a recent low followed by displacement.
+    look = d.iloc[max(0, i-21):i-1]
+    sell_side = float(look.low.min()) if len(look) else np.nan
+    swept = np.isfinite(sell_side) and float(b.low) < sell_side and float(b.close) > sell_side
+    recent = d.iloc[max(0, i-6):i]
+    recent_sweep = False
+    if len(recent) >= 3:
+        prior = recent.low.shift(1).rolling(10, min_periods=2).min()
+        recent_sweep = bool(((recent.low < prior) & (recent.close > prior)).any())
+    if not (swept or recent_sweep):
+        return None
+    return {
+        "symbol": symbol, "created_index": i, "created_at": pd.Timestamp(int(c.timestamp), unit="ms", tz="UTC").isoformat(),
+        "lower": lower, "upper": upper, "ce": (lower+upper)/2, "sweep_level": sell_side,
+        "gap_atr": gap_atr, "impulse_ratio": impulse, "volume_ratio": volume_ratio,
+    }
+
+
+def load_state(initial, max_open):
+    if os.path.exists(STATE_PATH):
+        with open(STATE_PATH, "r", encoding="utf-8") as f:
+            s = json.load(f)
+        s.setdefault("equity", initial); s.setdefault("cash", initial); s.setdefault("open_positions", [])
+        s.setdefault("trades", []); s.setdefault("processed", {}); s.setdefault("equity_curve", [])
+        return s
+    return {"strategy":"ICT quick scalp 5m execution / 15m bias", "started_at":now_iso(), "last_run_at":None,
+            "equity":initial, "cash":initial, "open_positions":[], "trades":[], "processed":{},
+            "equity_curve":[], "max_open_positions":max_open}
+
+
+def save_state(s):
+    os.makedirs("reports", exist_ok=True)
+    with open(STATE_PATH, "w", encoding="utf-8") as f: json.dump(s, f, indent=2, default=str)
+    pd.DataFrame(s["trades"]).to_csv(TRADES_PATH, index=False)
+    pd.DataFrame(s["equity_curve"]).to_csv(EQUITY_PATH, index=False)
+
+
+def close_position(s, p, exit_price, reason, fee_bps, slip_bps, stamp):
+    fee, slip = fee_bps/10000, slip_bps/10000
+    entry_fill = p["entry_price"]*(1+slip); exit_fill = exit_price*(1-slip)
+    qty = p["qty"]
+    gross = (exit_fill-entry_fill)*qty
+    fees = (entry_fill*qty+exit_fill*qty)*fee
+    net = gross-fees
+    s["cash"] += qty*exit_fill-exit_fill*qty*fee
+    s["trades"].append({"symbol":p["symbol"],"entry_time":p["entry_time"],"exit_time":stamp,
+        "entry_price":entry_fill,"exit_price":exit_fill,"quantity":qty,"gross_pnl":gross,
+        "fees":fees,"net_pnl":net,"exit_reason":reason,"stop_price":p["stop_price"],
+        "target_price":p["target_price"],"zone_lower":p["zone_lower"],"zone_upper":p["zone_upper"],
+        "sweep_level":p.get("sweep_level")})
+
+
+def main():
+    ap=argparse.ArgumentParser()
+    ap.add_argument("--all-coins",action="store_true"); ap.add_argument("--quote",default="USDT")
+    ap.add_argument("--days",type=int,default=2); ap.add_argument("--initial-equity",type=float,default=1000.0)
+    ap.add_argument("--risk-fraction",type=float,default=0.005); ap.add_argument("--reward-risk",type=float,default=1.5)
+    ap.add_argument("--fee-bps",type=float,default=10.0); ap.add_argument("--slippage-bps",type=float,default=5.0)
+    ap.add_argument("--stop-atr-buffer",type=float,default=0.10); ap.add_argument("--min-gap-atr",type=float,default=0.10)
+    ap.add_argument("--min-impulse-ratio",type=float,default=0.60); ap.add_argument("--min-volume-ratio",type=float,default=1.10)
+    ap.add_argument("--max-open-positions",type=int,default=9); ap.add_argument("--capital-deployment",type=float,default=0.90)
+    args=ap.parse_args()
+    exchange=ccxt.binance({"enableRateLimit":True,"options":{"defaultType":"spot"}})
+    exchange.load_markets()
+    symbols=[s for s in exchange.markets if s.endswith('/'+args.quote) and exchange.markets[s].get('spot') and exchange.markets[s].get('active')] if args.all_coins else ["BTC/USDT","ETH/USDT","SOL/USDT"]
+    s=load_state(args.initial_equity,args.max_open_positions); s["max_open_positions"]=args.max_open_positions; s["capital_deployment"]=args.capital_deployment
+    latest={}; signals=[]; stamp_now=now_iso()
+    for symbol in symbols:
+        try:
+            raw=fetch_ohlcv(exchange,symbol,"5m",args.days)
+            if len(raw)<100: continue
+            d=indicators_5m(raw); row=d.iloc[-1]; stamp=pd.Timestamp(int(row.timestamp),unit="ms",tz="UTC").isoformat(); latest[symbol]=float(row.close)
+            for p in list(s["open_positions"]):
+                if p["symbol"]!=symbol: continue
+                stop=float(row.low)<=p["stop_price"]; target=float(row.high)>=p["target_price"]
+                if stop or target:
+                    reason="stop_loss" if stop else "take_profit"; exit_price=p["stop_price"] if stop else p["target_price"]
+                    close_position(s,p,exit_price,reason,args.fee_bps,args.slippage_bps,stamp); s["open_positions"].remove(p)
+                    print(f"CLOSED {symbol} {reason} exit={exit_price}")
+            ts=int(row.timestamp)
+            if s["processed"].get(symbol)==ts: continue
+            z=detect_scalp_fvg(d,len(d)-1,symbol,args.min_gap_atr,args.min_impulse_ratio,args.min_volume_ratio)
+            if z and len(s["open_positions"])<args.max_open_positions and row.htf_bias!="bearish" and row.low<=z["upper"] and row.close>z["ce"] and row.close>row.open:
+                entry=float(row.close)
+                stop=min(float(z["sweep_level"]),z["lower"])-args.stop_atr_buffer*float(row.atr)
+                risk=entry-stop
+                if risk>0 and s["cash"]>0:
+                    risk_cash=s["equity"]*args.risk_fraction
+                    deployed=sum(p["qty"]*p["entry_price"] for p in s["open_positions"])
+                    room=max(0,s["equity"]*args.capital_deployment-deployed)
+                    slot=s["equity"]*args.capital_deployment/max(args.max_open_positions,1)
+                    slip=args.slippage_bps/10000
+                    qty=min(risk_cash/risk,min(slot,room)/(entry*(1+slip)),s["cash"]/(entry*(1+slip)))
+                    if qty>0:
+                        target=entry+args.reward_risk*risk; cost=qty*entry*(1+slip); s["cash"]-=cost
+                        p={"symbol":symbol,"entry_time":stamp,"entry_price":entry,"qty":qty,"stop_price":stop,"target_price":target,"zone_lower":z["lower"],"zone_upper":z["upper"],"sweep_level":z["sweep_level"]}
+                        s["open_positions"].append(p); signals.append({"symbol":symbol,"type":"SCALP_LONG_OPENED","time":stamp,"entry":entry,"stop":stop,"target":target,"quantity":qty,"fvg":[z["lower"],z["upper"]]})
+            s["processed"][symbol]=ts
+        except Exception as exc: print(f"ERROR {symbol}: {type(exc).__name__}: {exc}")
+    value=s["cash"]+sum(p["qty"]*latest.get(p["symbol"],p["entry_price"]) for p in s["open_positions"]); s["equity"]=value; s["last_run_at"]=stamp_now
+    s["equity_curve"].append({"timestamp":stamp_now,"equity":s["equity"],"cash":s["cash"],"open_positions":len(s["open_positions"])})
+    s["last_signals"]=signals; save_state(s)
+    print(f"SCALP RUN {stamp_now} symbols={len(symbols)} open_positions={len(s['open_positions'])} trades={len(s['trades'])} equity={s['equity']:.4f} cash={s['cash']:.4f}")
+
+if __name__=="__main__": main()
