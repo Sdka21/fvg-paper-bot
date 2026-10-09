@@ -39,7 +39,7 @@ jobs:
         run: |
           set -o pipefail
           mkdir -p reports
-          python scalp_paper_trader.py \
+          python scalp_regime_runner.py \
             --all-coins \
             --quote USDT \
             --days 2 \
